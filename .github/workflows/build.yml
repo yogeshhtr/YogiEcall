@@ -1,0 +1,59 @@
+name: Build Yogi Ecall APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.2'
+
+      - name: Generate Gradle Wrapper
+        # retried: GitHub's download and cache services sometimes have short outages
+        run: |
+          for i in 1 2 3; do gradle wrapper --stacktrace && exit 0; echo "retry $i"; sleep 30; done
+          exit 1
+
+      - name: Build APK
+        run: |
+          set -o pipefail
+          if ! ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log; then
+            # show compile and lint errors as annotations on the run page
+            grep -E "^e: |: error:|Error: |What went wrong" -A2 build.log | head -10 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          fi
+
+      - name: Name the APK
+        run: cp app/build/outputs/apk/release/app-release.apk YogiEcall.apk
+
+      - name: Upload APK (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: YogiEcall-apk
+          path: YogiEcall.apk
+          retention-days: 30
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: Yogi Ecall v${{ github.run_number }}
+          files: YogiEcall.apk
+          make_latest: true
